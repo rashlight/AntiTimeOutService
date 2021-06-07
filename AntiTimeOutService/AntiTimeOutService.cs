@@ -105,13 +105,22 @@ namespace AntiTimeOutService
         {
             // Create - Reuse service
             eventLogger = new System.Diagnostics.EventLog();
-            if (!System.Diagnostics.EventLog.SourceExists("AntiTimeOut"))
+            try
             {
-                System.Diagnostics.EventLog.CreateEventSource(
-                    "AntiTimeOut", "Anti Time-Out Service");
+                if (!System.Diagnostics.EventLog.SourceExists("AntiTimeOut"))
+                {
+                    System.Diagnostics.EventLog.CreateEventSource(
+                        "AntiTimeOut", "Anti Time-Out Service");
+                }
+                eventLogger.Source = "AntiTimeOut";
+                eventLogger.Log = EventLog.LogNameFromSourceName("AntiTimeOut", ".");
             }
-            eventLogger.Source = "AntiTimeOut";
-            eventLogger.Log = EventLog.LogNameFromSourceName("AntiTimeOut", ".");                       
+            catch
+            {
+                Console.WriteLine("Installation of this service requires administrative privileges. Please try again.");
+                return;
+            }
+                              
         }
 
         [DllImport("advapi32.dll", SetLastError = true)]
