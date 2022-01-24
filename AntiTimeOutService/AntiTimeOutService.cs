@@ -39,7 +39,8 @@ namespace AntiTimeOutService
     {
         THROW_EXCEPTION = -1,
         DO_NOTHING = 0,
-        WRITE_WARNING_LOG = 1,
+        WRITE_WARNING_LOG_ENDLESS = 1,
+        WRITE_WARNING_LOG_ONCE = 2,
     }
 
     /// <summary>
@@ -48,7 +49,7 @@ namespace AntiTimeOutService
     public enum CommandAction
     {
         CONNECTION_TEST = 128,       
-        ERASE_MEM_EVENTLOGS = 129,
+        ERASE_EVENTLOGS = 129,
         CHANGE_LOGLVL_NONE = 130,
         CHANGE_LOGLVL_CONSERVATIVE = 131,
         CHANGE_LOGLVL_NORMAL = 132,
@@ -61,7 +62,7 @@ namespace AntiTimeOutService
     public enum LogLevel
     {
         /// <summary>
-        /// No logs will be used (parameter override only)
+        /// No logs will be used
         /// </summary>
         None = 0,
         /// <summary>
@@ -69,11 +70,11 @@ namespace AntiTimeOutService
         /// </summary>
         Conservative = 1,
         /// <summary>
-        /// All events will be logged
+        /// All events except Information will be logged
         /// </summary>
         Normal = 2,
         /// <summary>
-        /// Like Normal, also includes debug texts
+        /// Like Normal, with Information logs
         /// </summary>
         Verbose = 3,
     }
@@ -90,15 +91,27 @@ namespace AntiTimeOutService
         public int dwWaitHint;
     };
 
+    public struct DefaultConfig 
+    {
+        public const int interval = 1000;
+        public const int timeOut = 1000;
+        public const string link = "1.1.1.1";
+        public const ulong failLimit = 3;
+        public const LimitAction failMode = LimitAction.WRITE_WARNING_LOG_ONCE;
+        public const LogLevel level = LogLevel.Normal;
+    }
+
     public partial class ATOSvc : ServiceBase
     {
-        int interval = 1000;
-        int timeOut = 1000;
-        string link = "1.1.1.1";
-        ulong failLimit = 3;
-        int failMode = 1; // LimitAction.WRITE_WARNING_LOG
+        int interval = DefaultConfig.interval;
+        int timeOut = DefaultConfig.timeOut;
+        string link = DefaultConfig.link;
+        ulong failLimit = DefaultConfig.failLimit;
+        LimitAction failMode = DefaultConfig.failMode; // LimitAction.WRITE_WARNING_LOG
+        LogLevel level = DefaultConfig.level;
+
         ulong failedTime = 0;
-        LogLevel level = LogLevel.Normal;
+        bool isFailConnectLogWritten = false;
         Timer timer = new Timer();
 
         public ATOSvc()
@@ -107,9 +120,9 @@ namespace AntiTimeOutService
             eventLogger = new System.Diagnostics.EventLog();
             try
             {
-                if (!System.Diagnostics.EventLog.SourceExists("AntiTimeOut"))
+                if (!EventLog.SourceExists("AntiTimeOut"))
                 {
-                    System.Diagnostics.EventLog.CreateEventSource(
+                    EventLog.CreateEventSource(
                         "AntiTimeOut", "Anti Time-Out Service");
                 }
                 eventLogger.Source = "AntiTimeOut";
@@ -129,22 +142,22 @@ namespace AntiTimeOutService
         /// <summary>
         /// Write something to the EventLog, depends on log level.
         /// Basically a wrapper for eventLogger.WriteEntry().
-        /// Usually ID = 1 for error, 2 for warning, 3 for informational stuff
+        /// The eventID should be at 0 at all times, since event logs are shared
         /// </summary>
-        private void AddLogEntry(string message, EventLogEntryType type = EventLogEntryType.Information, int eventID = 3, bool debug = false)
+        private void AddLogEntry(string message, EventLogEntryType type = EventLogEntryType.Information, int eventID = 0)
         {
             switch (level)
             {
                 case LogLevel.None:
                     return;
                 case LogLevel.Normal:
-                    if (!debug)
+                    if (type != EventLogEntryType.Information)
                     {
                         eventLogger.WriteEntry(message, type, eventID);
                     }
                     break;
                 case LogLevel.Conservative:
-                    if ((type != EventLogEntryType.SuccessAudit || type != EventLogEntryType.Information || type != EventLogEntryType.Warning) && !debug)
+                    if (type != EventLogEntryType.SuccessAudit && type != EventLogEntryType.Information && type != EventLogEntryType.Warning)
                     {
                         eventLogger.WriteEntry(message, type, eventID);
                     }
@@ -154,7 +167,7 @@ namespace AntiTimeOutService
                     break;
             }
         }
-        private string WriteDateTimeLog(string message)
+        private string ToDateTimeString(string message)
         {
             return "[" + DateTime.UtcNow + "] " + message;
         }
@@ -163,17 +176,17 @@ namespace AntiTimeOutService
         {           
             switch (failMode)
             {
-                case (int)LimitAction.THROW_EXCEPTION:
-                    {
-                        AddLogEntry(WriteDateTimeLog("An user-handled exception has occurred in AntiTimeOut Service. " +
-                            "This service will now trigger a crash."), EventLogEntryType.Error, 1);
-                        throw new PingException("Connection attempts exceeded (" + failLimit + ")");
-                    }
-                case (int)LimitAction.WRITE_WARNING_LOG:
-                    {
-                        AddLogEntry(WriteDateTimeLog("Connection attempts exceeded (" + failedTime + " out of " + failLimit + " attempt(s)"), EventLogEntryType.Warning, 2);
-                        break;
-                    }               
+                case LimitAction.THROW_EXCEPTION:
+                    AddLogEntry(ToDateTimeString("An user-handled exception has occurred in AntiTimeOut Service. " +
+                        "This service will now trigger a crash."), EventLogEntryType.Error);
+                    throw new PingException("Connection attempts exceeded (" + failLimit + ")");
+                case LimitAction.WRITE_WARNING_LOG_ENDLESS:
+                    AddLogEntry(ToDateTimeString("Connection attempts exceeded (" + failedTime + " out of " + failLimit + " attempt(s)"));
+                    break;
+                case LimitAction.WRITE_WARNING_LOG_ONCE:
+                    if (!isFailConnectLogWritten)
+                        AddLogEntry(ToDateTimeString("Connection attempts exceeded (" + failLimit + " attempt(s)"));
+                    break;
                 default: break;
             }
         }
@@ -182,31 +195,37 @@ namespace AntiTimeOutService
             switch (command)
             {
                 case (int)CommandAction.CONNECTION_TEST:
-                    AddLogEntry(WriteDateTimeLog("A connection test to service has completed."));
+                    AddLogEntry(ToDateTimeString("A connection test to service has completed."));
                     break;
-                case (int)CommandAction.ERASE_MEM_EVENTLOGS:
-                    eventLogger.Clear();
+                case (int)CommandAction.ERASE_EVENTLOGS:
+                    if (EventLog.SourceExists("AntiTimeOut"))
+                    {
+                        EventLog.DeleteEventSource("AntiTimeOut");
+                        EventLog.CreateEventSource("AntiTimeOut", "Anti Time-Out Service");
+                        eventLogger = new EventLog("AntiTimeOut", EventLog.LogNameFromSourceName("AntiTimeOut", "."));
+                        AddLogEntry(ToDateTimeString("Log has been deleted."), EventLogEntryType.Warning);
+                    }
                     break;
                 case (int)CommandAction.CHANGE_LOGLVL_NONE:
                     level = LogLevel.None;
-                    AddLogEntry(WriteDateTimeLog("LogLevel changed to None"));
+                    AddLogEntry(ToDateTimeString("LogLevel changed to None"));
                     break;
                 case (int)CommandAction.CHANGE_LOGLVL_CONSERVATIVE:
                     level = LogLevel.Conservative;
-                    AddLogEntry(WriteDateTimeLog("LogLevel changed to Conservative mode"));
+                    AddLogEntry(ToDateTimeString("LogLevel changed to Conservative mode"));
                     break;
                 case (int)CommandAction.CHANGE_LOGLVL_NORMAL:
                     level = LogLevel.Normal;
-                    AddLogEntry(WriteDateTimeLog("LogLevel changed to Normal mode"));
+                    AddLogEntry(ToDateTimeString("LogLevel changed to Normal mode"));
                     break;
                 case (int)CommandAction.CHANGE_LOGLVL_VERBOSE:
                     level = LogLevel.Verbose;
-                    AddLogEntry(WriteDateTimeLog("LogLevel changed to Verbose mode"));
+                    AddLogEntry(ToDateTimeString("LogLevel changed to Verbose mode"));
                     break;
                 default: break;
             }
 
-            AddLogEntry(WriteDateTimeLog("Command " + Enum.GetName(typeof(CommandAction), command) + " executed sucessfully"));
+            AddLogEntry(ToDateTimeString("Command " + Enum.GetName(typeof(CommandAction), command) + " executed sucessfully"), EventLogEntryType.SuccessAudit);
         }
 
         private async void OnPolling(object sender, ElapsedEventArgs e)
@@ -225,14 +244,15 @@ namespace AntiTimeOutService
 
                     if (result.Status == IPStatus.Success)
                     {
-                        AddLogEntry(WriteDateTimeLog("Ping to " + source.ToString() + " at [" + result.Address.ToString() + "]" + " completed,"
-                           + " roundtrip time = " + result.RoundtripTime.ToString() + "ms"), EventLogEntryType.Information, 3);
+                        AddLogEntry(ToDateTimeString("Ping to " + source.ToString() + " at [" + result.Address.ToString() + "]" + " completed,"
+                           + " roundtrip time = " + result.RoundtripTime.ToString() + "ms"), EventLogEntryType.Information);
                         failedTime = 0;
+                        isFailConnectLogWritten = false;
                         errString = "OK";
                     }
                     else
                     {
-                        AddLogEntry(WriteDateTimeLog("Ping to " + source.ToString() + " at [" + result.Address.ToString() + "]" + " failed - " + ((IPStatus)result.Status).ToString()), EventLogEntryType.Warning, 2);
+                        AddLogEntry(ToDateTimeString("Ping to " + source.ToString() + " at [" + result.Address.ToString() + "]" + " failed - " + ((IPStatus)result.Status).ToString()), EventLogEntryType.Warning);
                         failedTime++;
                         if (failedTime >= failLimit)
                         {
@@ -243,7 +263,7 @@ namespace AntiTimeOutService
                 }
                 catch (Exception exp)
                 {
-                    AddLogEntry(WriteDateTimeLog("Ping exception raised:\n" + exp.Source + ": " + exp.Message), EventLogEntryType.Error, 1);
+                    AddLogEntry(ToDateTimeString("Ping exception raised:\n" + exp.Source + ": " + exp.Message), EventLogEntryType.Error);
                     failedTime++;
                     if (failedTime >= failLimit)
                     {
@@ -266,7 +286,10 @@ namespace AntiTimeOutService
             }
             catch (Exception exp)
             {
-                AddLogEntry(WriteDateTimeLog("Writing to status log failed:\n" + exp.ToString()), EventLogEntryType.FailureAudit, 1);
+                AddLogEntry(ToDateTimeString("Writing to ServiceStatus.log failed:\n" + exp.ToString() + 
+                    "\nThis will prevent applications that use this service to work correctly. " +
+                    "Check your file / user privileges, access and ownership rights, and then try again."), 
+                    EventLogEntryType.Error);
             }        
         }
         protected override void OnStart(string[] args)
@@ -291,34 +314,41 @@ namespace AntiTimeOutService
                 if (args.Length == 5)
                 {
                     parameters = new string[5] { args[0], args[1], args[2], args[3], args[4] };
-                    AddLogEntry(WriteDateTimeLog("Special start parameters detected, overriding..." + configFolderName + "\\ServiceConfig.cfg"));
+                    AddLogEntry(ToDateTimeString("Special start parameters detected, overriding..." + configFolderName + "\\ServiceConfig.cfg"));
                 }
                 else 
                 {
                     parameters = File.ReadAllText(configFolderName + "\\ServiceConfig.cfg").Split(' ');
-                    AddLogEntry(WriteDateTimeLog("Reading from " + configFolderName + "\\ServiceConfig.cfg"));
-                }                              
+                    AddLogEntry(ToDateTimeString("Reading from " + configFolderName + "\\ServiceConfig.cfg"));
+                }
 
                 // Load parameters
                 interval = Convert.ToInt32(parameters[0]);
                 timeOut = Convert.ToInt32(parameters[1]);
                 link = parameters[2];
                 failLimit = Convert.ToUInt64(parameters[3]);
-                failMode = Convert.ToInt32(parameters[4]);
+                failMode = (LimitAction)Enum.Parse(typeof(LimitAction), parameters[4].ToString());
             }
             catch
             {
-                AddLogEntry(WriteDateTimeLog("Ignoring parameters assignment..."), EventLogEntryType.Information, 2);
+                AddLogEntry(ToDateTimeString("Error reading file, ignoring parameters assignment..."), EventLogEntryType.Information);
+
+                interval = DefaultConfig.interval;
+                timeOut = DefaultConfig.timeOut;
+                link = DefaultConfig.link;
+                failLimit = DefaultConfig.failLimit;
+                failMode = DefaultConfig.failMode; // LimitAction.WRITE_WARNING_LOG
+                level = DefaultConfig.level;
 
                 if (args.Length == 0) // Does start parameter is applied? Else it's a file problem
                 {
                     Directory.CreateDirectory(configFolderName);
                     File.WriteAllText(configFolderName + "\\ServiceConfig.cfg", interval + " " + timeOut + " " + link + " " + failLimit + " " + failMode);
-                    AddLogEntry(WriteDateTimeLog("Created configuration file at " + configFolderName + "\\ServiceConfig.cfg"));
+                    AddLogEntry(ToDateTimeString("Created configuration file at " + configFolderName + "\\ServiceConfig.cfg"));
                 }
             }
 
-            AddLogEntry(WriteDateTimeLog("Service started with:\n INTERVAL = " + interval + ",\n TIMEOUT = " + timeOut + ",\n LINK = " + link + ",\n LIMIT = " + failLimit + ",\n FAILMODE = " + ((LimitAction)failMode).ToString()));
+            AddLogEntry(ToDateTimeString("Service started with:\n INTERVAL = " + interval + ",\n TIMEOUT = " + timeOut + ",\n LINK = " + link + ",\n LIMIT = " + failLimit + ",\n FAILMODE = " + ((LimitAction)failMode).ToString()));
 
             // Update the service state to Running.
             status.dwCurrentState = ServiceState.RUNNING;
@@ -344,7 +374,7 @@ namespace AntiTimeOutService
 
             base.OnPause();
 
-            AddLogEntry(WriteDateTimeLog("Service paused"));
+            AddLogEntry(ToDateTimeString("Service paused"));
 
             // Update the service state to Paused.
             status.dwCurrentState = ServiceState.PAUSED;
@@ -367,7 +397,7 @@ namespace AntiTimeOutService
 
             timer.Start();
 
-            AddLogEntry(WriteDateTimeLog("Service continued"));
+            AddLogEntry(ToDateTimeString("Service continued"));
 
             // Update the service state to Running.
             status.dwCurrentState = ServiceState.RUNNING;
@@ -380,7 +410,7 @@ namespace AntiTimeOutService
 
             base.OnShutdown();
 
-            AddLogEntry(WriteDateTimeLog("System shutdown, stopping..."));
+            AddLogEntry(ToDateTimeString("System shutdown, stopping..."));
         }
         protected override void OnStop()
         {
@@ -398,7 +428,7 @@ namespace AntiTimeOutService
 
             base.OnStop();
 
-            AddLogEntry(WriteDateTimeLog("Service stopped"));
+            AddLogEntry(ToDateTimeString("Service stopped"));
 
             // Update the service state to Stopped.
             status.dwCurrentState = ServiceState.STOPPED;
