@@ -101,7 +101,7 @@ namespace AntiTimeOutService
         public const LogLevel level = LogLevel.Normal;
     }
 
-    public partial class ATOSvc : ServiceBase
+    public partial class AntiTimeOutService : ServiceBase
     {
         int interval = DefaultConfig.interval;
         int timeOut = DefaultConfig.timeOut;
@@ -114,7 +114,7 @@ namespace AntiTimeOutService
         bool isFailConnectLogWritten = false;
         Timer timer = new Timer();
 
-        public ATOSvc()
+        public AntiTimeOutService()
         {
             // Create - Reuse service
             eventLogger = new System.Diagnostics.EventLog();
@@ -202,7 +202,9 @@ namespace AntiTimeOutService
                     {
                         EventLog.DeleteEventSource("AntiTimeOut");
                         EventLog.CreateEventSource("AntiTimeOut", "Anti Time-Out Service");
-                        eventLogger = new EventLog("AntiTimeOut", EventLog.LogNameFromSourceName("AntiTimeOut", "."));
+                        eventLogger = new EventLog();
+                        eventLogger.Source = "AntiTimeOut";
+                        eventLogger.Log = EventLog.LogNameFromSourceName("AntiTimeOut", ".");
                         AddLogEntry(ToDateTimeString("Log has been deleted."), EventLogEntryType.Warning);
                     }
                     break;
@@ -244,7 +246,7 @@ namespace AntiTimeOutService
 
                     if (result.Status == IPStatus.Success)
                     {
-                        AddLogEntry(ToDateTimeString("Ping to " + source.ToString() + " at [" + result.Address.ToString() + "]" + " completed,"
+                        AddLogEntry(ToDateTimeString("Ping to " + source.ToString() + " from [" + result.Address.ToString() + "]" + " completed,"
                            + " roundtrip time = " + result.RoundtripTime.ToString() + "ms"), EventLogEntryType.Information);
                         failedTime = 0;
                         isFailConnectLogWritten = false;
@@ -252,9 +254,9 @@ namespace AntiTimeOutService
                     }
                     else
                     {
-                        AddLogEntry(ToDateTimeString("Ping to " + source.ToString() + " at [" + result.Address.ToString() + "]" + " failed - " + ((IPStatus)result.Status).ToString()), EventLogEntryType.Warning);
+                        AddLogEntry(ToDateTimeString("Ping to " + source.ToString() + " from [" + result.Address.ToString() + "]" + " failed:\n" + result.Status.ToString()), EventLogEntryType.Warning);
                         failedTime++;
-                        if (failedTime >= failLimit)
+                        if (failedTime > failLimit)
                         {
                             OnReachingFailLimit();
                         }
@@ -263,9 +265,9 @@ namespace AntiTimeOutService
                 }
                 catch (Exception exp)
                 {
-                    AddLogEntry(ToDateTimeString("Ping exception raised:\n" + exp.Source + ": " + exp.Message), EventLogEntryType.Error);
+                    AddLogEntry(ToDateTimeString("Ping from [" + result.Address.ToString() + "]" + " raised an exception:\n" + exp.Source + ": " + exp.Message), EventLogEntryType.Warning);
                     failedTime++;
-                    if (failedTime >= failLimit)
+                    if (failedTime > failLimit)
                     {
                         OnReachingFailLimit();      
                     }

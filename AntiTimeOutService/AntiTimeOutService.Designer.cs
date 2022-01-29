@@ -1,6 +1,6 @@
 ﻿namespace AntiTimeOutService
 {
-    partial class ATOSvc
+    partial class AntiTimeOutService
     {
         /// <summary> 
         /// Required designer variable.
@@ -31,7 +31,7 @@
             this.eventLogger = new System.Diagnostics.EventLog();
             ((System.ComponentModel.ISupportInitialize)(this.eventLogger)).BeginInit();
             // 
-            // ATOSvc
+            // AntiTimeOutService
             // 
             this.ServiceName = "AntiTimeOut Network Service";
             ((System.ComponentModel.ISupportInitialize)(this.eventLogger)).EndInit();
