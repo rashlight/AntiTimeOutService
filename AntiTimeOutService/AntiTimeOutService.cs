@@ -265,7 +265,7 @@ namespace AntiTimeOutService
                 }
                 catch (Exception exp)
                 {
-                    AddLogEntry(ToDateTimeString("Ping from [" + result.Address.ToString() + "]" + " raised an exception:\n" + exp.Source + ": " + exp.Message), EventLogEntryType.Warning);
+                    AddLogEntry(ToDateTimeString("Ping raised an exception:\n" + exp.Source + ": " + exp.Message), EventLogEntryType.Warning);
                     failedTime++;
                     if (failedTime > failLimit)
                     {

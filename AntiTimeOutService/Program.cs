@@ -19,29 +19,53 @@ namespace AntiTimeOutService
             {
                 System.IO.File.AppendAllText(
                     "install.log",
-                    "\n" +
-                    "+=============================================\n" +
-                    "| Service install at " + DateTime.Now + "\n" +
-                    "+=============================================" +
-                    "\n");
+                    "\n================ Service install at " + DateTime.Now + " ================\n");
+                
                 // Available arguments: logtoconsole, assemblypath, logfile
                 string[] installerArgs = new string[1] { "/LogFile=install.log" };
-                AssemblyInstaller installer = new AssemblyInstaller(System.AppDomain.CurrentDomain.FriendlyName, installerArgs);
+                AssemblyInstaller installer = new AssemblyInstaller(System.Reflection.Assembly.GetExecutingAssembly().Location, installerArgs);
+                
                 // Allow the installer to use text logs
                 installer.UseNewContext = true;
 
                 switch (args[0])
                 {
                     case "-i":
-                        // A service installation must be combined with a commit
-                        installer.Install(null);
-                        installer.Commit(null); 
+                    case "--install":
+                    case "/i":
+                        try
+                        {
+                            // A service installation must be combined with a commit
+                            installer.Install(null);
+                            installer.Commit(null);
+                            System.IO.File.AppendAllText("install.log", "[OK] Installation success\n");
+                        }
+                        catch (Exception exp)
+                        {
+                            System.IO.File.AppendAllText("install.log",
+                               "[!!] An error has occurred from " + exp.Source + ":\n" + exp.Message + "\n" + exp.StackTrace + "\n" +
+                               "[!!] Error installing service: Operation cannot continue due to an exception\n");
+                            throw exp;
+                        }
                         break;
                     case "-u":
-                        installer.Uninstall(null);
+                    case "--uninstall":
+                    case "/u":
+                        try
+                        {
+                            installer.Uninstall(null);
+                            System.IO.File.AppendAllText("install.log", "[OK] Uninstallation success\n");
+                        }
+                        catch (Exception exp)
+                        {
+                            System.IO.File.AppendAllText("install.log",
+                                "[!!] An error has occurred from " + exp.Source + ":\n" + exp.Message + "\n" + exp.StackTrace + "\n" +
+                                "[!!] Error uninstalling service: Operation cannot continue due to an exception\n");
+                            throw exp;
+                        }
                         break;
                     default:
-                        System.IO.File.AppendAllText("install.log", "Error installing service: invalid arguments\n");
+                        System.IO.File.AppendAllText("install.log", "[!!] Error installing service: Invalid arguments\n");
                         break;
                 } 
             }

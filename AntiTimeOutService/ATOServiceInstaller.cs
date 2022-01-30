@@ -17,14 +17,15 @@ namespace AntiTimeOutService
 
         public ATOServiceInstaller()
         {
-            // The services run under the system account.
             processInstaller.Account = ServiceAccount.LocalSystem;
-
-            // The services are started manually.
             serviceInstaller.StartType = ServiceStartMode.Automatic;
 
-            // ServiceName must equal those on ServiceBase derived classes.
-            serviceInstaller.ServiceName = "AntiTimeOutService";
+            // Note: Changing these two will requires all ServiceController actions to be changed!
+            serviceInstaller.ServiceName = "Anti Time-Out Network Service";
+            serviceInstaller.DisplayName = "Anti Time-Out Network Service";
+
+            serviceInstaller.Description = "Monitoring network availibility on custom intervals. " +
+                "If this service is stopped, any applications depends on it might not work properly.";
 
             // Add installers to collection. Order is not important.
             Installers.Add(serviceInstaller);
