@@ -350,7 +350,7 @@ namespace AntiTimeOutService
                 }
             }
 
-            AddLogEntry(ToDateTimeString("Service started with:\n INTERVAL = " + interval + ",\n TIMEOUT = " + timeOut + ",\n LINK = " + link + ",\n LIMIT = " + failLimit + ",\n FAILMODE = " + ((LimitAction)failMode).ToString()));
+            AddLogEntry(ToDateTimeString("Service started with:\n INTERVAL = " + interval + ",\n TIMEOUT = " + timeOut + ",\n LINK = " + link + ",\n LIMIT = " + failLimit + ",\n FAILMODE = " + ((LimitAction)failMode).ToString()), EventLogEntryType.SuccessAudit);
 
             // Update the service state to Running.
             status.dwCurrentState = ServiceState.RUNNING;
